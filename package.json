@@ -1,0 +1,29 @@
+{
+  "name": "ddos-monitoring-tool",
+  "version": "1.0.0",
+  "description": "Aplikasi monitoring request untuk deteksi serangan DDoS dengan grafik realtime",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "ddos",
+    "monitoring",
+    "security",
+    "realtime",
+    "chart",
+    "nodejs",
+    "socket.io"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
