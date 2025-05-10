@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDoS Request Monitoring</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #141419;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1, h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .chart-container {
+            position: relative;
+            height: 60vh;
+            width: 100%;
+            margin-bottom: 30px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            margin-bottom: 30px;
+            background-color: #1e1e24;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .stat-box {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #84bae6;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #aaa;
+        }
+        .tables-container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .table-wrapper {
+            flex: 1;
+            background-color: #1e1e24;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #2d2d35;
+        }
+        th {
+            color: #aaa;
+        }
+        .threshold-high {
+            color: #ff5252;
+        }
+        .threshold-medium {
+            color: #ffab40;
+        }
+        .threshold-normal {
+            color: #84bae6;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .status-normal {
+            background-color: #388e3c;
+        }
+        .status-warning {
+            background-color: #f57c00;
+        }
+        .status-danger {
+            background-color: #d32f2f;
+        }
+        #attackStatus {
+            text-align: center;
+            padding: 10px;
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DDoS Request Monitoring</h1>
+        
+        <div id="attackStatus" class="status-normal">
+            STATUS: NORMAL - No DDoS Attack Detected
+        </div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-value" id="currentRequests">0</div>
+                <div class="stat-label">Requests/sec</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="avgRequests">0</div>
+                <div class="stat-label">Avg Requests/sec</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="totalRequests">0</div>
+                <div class="stat-label">Total Requests</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="uniqueIPs">0</div>
+                <div class="stat-label">Unique IPs</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="maxRequests">0</div>
+                <div class="stat-label">Peak Requests/sec</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="requestsChart"></canvas>
+        </div>
+        
+        <div class="tables-container">
+            <div class="table-wrapper">
+                <h2>Top IP Addresses</h2>
+                <table id="topIpsTable">
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th>Request Count</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="table-wrapper">
+                <h2>Top Endpoints</h2>
+                <table id="topEndpointsTable">
+                    <thead>
+                        <tr>
+                            <th>Endpoint</th>
+                            <th>Request Count</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Connect to Socket.IO server
+        const socket = io();
+        
+        // Chart configuration
+        const ctx = document.getElementById('requestsChart').getContext('2d');
+        const labels = Array(100).fill('').map((_, i) => i.toString());
+        const data = {
+            labels: labels,
+            datasets: [{
+                label: 'Requests per Second',
+                data: [],
+                borderColor: 'rgba(132, 186, 230, 1)',
+                backgroundColor: 'rgba(132, 186, 230, 0.1)',
+                borderWidth: 1.5,
+                fill: true,
+                tension: 0.2,
+                pointRadius: 0
+            }]
+        };
+        
+        const config = {
+            type: 'line',
+            data: data,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(70, 70, 70, 0.2)'
+                        },
+                        ticks: {
+                            color: '#aaa'
+                        }
+                    },
+                    x: {
+                        display: false
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        displayColors: false,
+                        callbacks: {
+                            title: function() {
+                                return "Requests per Second";
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        
+        const requestsChart = new Chart(ctx, config);
+        
+        // Thresholds for attack detection
+        const THRESHOLD_WARNING = 100;  // Requests per second
+        const THRESHOLD_DANGER = 200;   // Requests per second
+        
+        // Update stats display
+        function updateStats(dataPoints, totalRequests, uniqueIPs) {
+            const currentRequests = document.getElementById('currentRequests');
+            const avgRequests = document.getElementById('avgRequests');
+            const totalRequestsEl = document.getElementById('totalRequests');
+            const uniqueIPsEl = document.getElementById('uniqueIPs');
+            const maxRequests = document.getElementById('maxRequests');
+            const attackStatus = document.getElementById('attackStatus');
+            
+            if (dataPoints.length > 0) {
+                const current = dataPoints[dataPoints.length - 1];
+                currentRequests.textContent = current;
+                
+                const sum = dataPoints.reduce((a, b) => a + b, 0);
+                const avg = sum / dataPoints.length;
+                avgRequests.textContent = avg.toFixed(1);
+                
+                const max = Math.max(...dataPoints);
+                maxRequests.textContent = max;
+                
+                totalRequestsEl.textContent = totalRequests;
+                uniqueIPsEl.textContent = uniqueIPs;
+                
+                // Update status based on current requests
+                if (current >= THRESHOLD_DANGER) {
+                    attackStatus.textContent = "STATUS: DANGER - DDoS Attack Detected!";
+                    attackStatus.className = "status-danger";
+                    currentRequests.className = "stat-value threshold-high";
+                } else if (current >= THRESHOLD_WARNING) {
+                    attackStatus.textContent = "STATUS: WARNING - Abnormal Traffic Detected";
+                    attackStatus.className = "status-warning";
+                    currentRequests.className = "stat-value threshold-medium";
+                } else {
+                    attackStatus.textContent = "STATUS: NORMAL - No DDoS Attack Detected";
+                    attackStatus.className = "status-normal";
+                    currentRequests.className = "stat-value threshold-normal";
+                }
+            }
+        }
+        
+        // Fetch and update top IPs table
+        function updateTopIPs() {
+            fetch('/api/top-ips')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.querySelector('#topIpsTable tbody');
+                    tbody.innerHTML = '';
+                    
+                    data.forEach(item => {
+                        const row = document.createElement('tr');
+                        
+                        const ipCell = document.createElement('td');
+                        ipCell.textContent = item.ip;
+                        
+                        const countCell = document.createElement('td');
+                        countCell.textContent = item.count;
+                        
+                        row.appendChild(ipCell);
+                        row.appendChild(countCell);
+                        tbody.appendChild(row);
+                    });
+                })
+                .catch(error => console.error('Error fetching top IPs:', error));
+        }
+        
+        // Fetch and update top endpoints table
+        function updateTopEndpoints() {
+            fetch('/api/top-endpoints')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.querySelector('#topEndpointsTable tbody');
+                    tbody.innerHTML = '';
+                    
+                    data.forEach(item => {
+                        const row = document.createElement('tr');
+                        
+                        const endpointCell = document.createElement('td');
+                        endpointCell.textContent = item.endpoint;
+                        
+                        const countCell = document.createElement('td');
+                        countCell.textContent = item.count;
+                        
+                        row.appendChild(endpointCell);
+                        row.appendChild(countCell);
+                        tbody.appendChild(row);
+                    });
+                })
+                .catch(error => console.error('Error fetching top endpoints:', error));
+        }
+        
+        // Handle initial data
+        socket.on('initialData', (data) => {
+            requestsChart.data.datasets[0].data = data.history;
+            requestsChart.update();
+            updateStats(data.history, data.totalRequests, data.uniqueIPs);
+            updateTopIPs();
+            updateTopEndpoints();
+        });
+        
+        // Handle new data points
+        socket.on('newDataPoint', (data) => {
+            const dataPoints = requestsChart.data.datasets[0].data;
+            dataPoints.shift();
+            dataPoints.push(data.value);
+            requestsChart.update('none'); // Update without animation for better performance
+            updateStats(dataPoints, data.totalRequests, data.uniqueIPs);
+        });
+        
+        // Update tables every 5 seconds
+        setInterval(() => {
+            updateTopIPs();
+            updateTopEndpoints();
+        }, 5000);
+    </script>
+</body>
+</html>
